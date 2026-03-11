@@ -3,10 +3,21 @@ import { getServiceClient } from '@/lib/supabase'
 import { parseDocument } from '@/lib/claude'
 
 export const dynamic = 'force-dynamic'
+// Give Claude more time to analyze complex plans
+export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
+    let formData: FormData
+    try {
+      formData = await request.formData()
+    } catch {
+      return NextResponse.json(
+        { error: 'Failed to read uploaded file. The file may be too large (max 4MB).' },
+        { status: 400 }
+      )
+    }
+
     const file = formData.get('file') as File | null
 
     if (!file) {
@@ -32,9 +43,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unsupported file type. Accepts PDF, images, DWG, DXF, SVG.' }, { status: 400 })
     }
 
-    // Validate file size (100MB for CAD files)
-    if (file.size > 100 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Max 100MB.' }, { status: 400 })
+    // Validate file size (4MB to stay under Vercel's 4.5MB body limit)
+    if (file.size > 4 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max 4MB per upload.` },
+        { status: 400 }
+      )
     }
 
     // Convert to base64
@@ -42,7 +56,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes)
     const base64 = buffer.toString('base64')
 
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage (non-blocking, don't fail if this errors)
     let fileUrl = ''
     try {
       const supabase = getServiceClient()
@@ -96,6 +110,25 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Document parse error:', error)
-    return NextResponse.json({ error: 'Failed to parse document' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error'
+
+    // Provide user-friendly error messages
+    if (message.includes('rate_limit') || message.includes('429')) {
+      return NextResponse.json(
+        { error: 'AI service is busy. Please wait a moment and try again.' },
+        { status: 429 }
+      )
+    }
+    if (message.includes('timeout') || message.includes('ETIMEDOUT')) {
+      return NextResponse.json(
+        { error: 'Analysis timed out. Try uploading a simpler or smaller file.' },
+        { status: 504 }
+      )
+    }
+
+    return NextResponse.json(
+      { error: 'Failed to analyze document. Please try again.' },
+      { status: 500 }
+    )
   }
 }
