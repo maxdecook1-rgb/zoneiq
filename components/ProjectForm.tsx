@@ -16,6 +16,7 @@ export default function ProjectForm({ address, onSubmit, loading }: ProjectFormP
   const [stories, setStories] = useState<string>('')
   const [sqft, setSqft] = useState<string>('')
   const [parking, setParking] = useState<string>('')
+  const [description, setDescription] = useState<string>('')
   const [showUpload, setShowUpload] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -26,6 +27,7 @@ export default function ProjectForm({ address, onSubmit, loading }: ProjectFormP
       stories: stories ? parseInt(stories) : undefined,
       sqft: sqft ? parseInt(sqft) : undefined,
       parking: parking ? parseInt(parking) : undefined,
+      description: description || undefined,
     })
   }
 
@@ -56,7 +58,7 @@ export default function ProjectForm({ address, onSubmit, loading }: ProjectFormP
       {/* Project Type Selector */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Project Type</label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
           {PROJECT_TYPES.map((pt) => (
             <button
               key={pt.value}
@@ -137,6 +139,23 @@ export default function ProjectForm({ address, onSubmit, loading }: ProjectFormP
                        focus:ring-blue-200 focus:border-blue-500 focus:outline-none text-gray-900"
           />
         </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+          Project Description (optional)
+        </label>
+        <textarea
+          id="description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g. 3 bed 2 bath duplex with open concept kitchen, covered porch, single car garage each side"
+          rows={3}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2
+                     focus:ring-blue-200 focus:border-blue-500 focus:outline-none text-gray-900 text-sm"
+        />
+        <p className="text-xs text-gray-400 mt-1">The more detail you provide, the better the AI-generated plans will be</p>
       </div>
 
       {/* Document Upload */}

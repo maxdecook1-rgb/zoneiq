@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import localFont from "next/font/local"
 import "./globals.css"
+import { AuthProvider } from "@/lib/auth-context"
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -10,7 +11,7 @@ const geistSans = localFont({
 
 export const metadata: Metadata = {
   title: "ZoneIQ — Zoning Intelligence Platform",
-  description: "Find out what you can build on any property in under 10 seconds",
+  description: "AI-powered zoning analysis, site plans, and compliance reports",
 }
 
 export default function RootLayout({
@@ -21,7 +22,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} font-sans antialiased bg-gray-50 text-gray-900`}>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   )

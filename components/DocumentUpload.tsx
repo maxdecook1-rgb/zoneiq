@@ -21,13 +21,15 @@ export default function DocumentUpload({ onParsed, onCancel }: DocumentUploadPro
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleFile = async (file: File) => {
-    const validTypes = ['application/pdf', 'image/png', 'image/jpeg']
-    if (!validTypes.includes(file.type)) {
-      setError('Please upload a PDF, PNG, or JPG file.')
+    // Accept all common file types
+    const validExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'tiff', 'tif', 'bmp', 'dwg', 'dxf', 'svg']
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (!ext || !validExtensions.includes(ext)) {
+      setError('Please upload a PDF, image, DWG, DXF, or SVG file.')
       return
     }
-    if (file.size > 50 * 1024 * 1024) {
-      setError('File must be under 50MB.')
+    if (file.size > 100 * 1024 * 1024) {
+      setError('File must be under 100MB.')
       return
     }
 
@@ -81,7 +83,7 @@ export default function DocumentUpload({ onParsed, onCancel }: DocumentUploadPro
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.png,.jpg,.jpeg"
+          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.tiff,.tif,.bmp,.dwg,.dxf,.svg"
           onChange={handleChange}
           className="hidden"
         />
@@ -98,7 +100,7 @@ export default function DocumentUpload({ onParsed, onCancel }: DocumentUploadPro
             <p className="text-sm text-gray-600">
               Drop your plans here or <span className="text-blue-600 font-medium">browse</span>
             </p>
-            <p className="text-xs text-gray-400">PDF, PNG, JPG up to 50MB</p>
+            <p className="text-xs text-gray-400">PDF, images, DWG, DXF, SVG up to 100MB</p>
           </div>
         )}
       </div>
