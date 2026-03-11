@@ -26,21 +26,33 @@ export async function POST(request: NextRequest) {
       }
 
       originalFileName = fileName || storagePath.split('/').pop() || 'unknown'
+      console.log(`[parse-document] Processing file from storage: ${storagePath}`)
 
       // Download file from Supabase Storage
-      const supabase = getServiceClient()
+      let supabase
+      try {
+        supabase = getServiceClient()
+      } catch (err) {
+        console.error('[parse-document] Failed to create Supabase client:', err)
+        return NextResponse.json(
+          { error: 'Server configuration error. Please contact support.' },
+          { status: 500 }
+        )
+      }
 
       const { data: downloadData, error: downloadError } = await supabase.storage
         .from('documents')
         .download(storagePath)
 
       if (downloadError || !downloadData) {
-        console.error('Failed to download from storage:', downloadError)
+        console.error('[parse-document] Storage download failed:', downloadError)
         return NextResponse.json(
-          { error: 'Failed to retrieve uploaded file. Please try uploading again.' },
+          { error: `Could not retrieve file from storage: ${downloadError?.message || 'File not found'}` },
           { status: 400 }
         )
       }
+
+      console.log(`[parse-document] Downloaded ${downloadData.size} bytes from storage`)
 
       // Get public URL for reference
       const { data: urlData } = supabase.storage
@@ -52,6 +64,17 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(await downloadData.arrayBuffer())
       base64 = buffer.toString('base64')
       fileSize = buffer.length
+
+      // Check base64 size (Claude has ~20MB limit for content)
+      const base64SizeMB = (base64.length / (1024 * 1024)).toFixed(1)
+      console.log(`[parse-document] Base64 size: ${base64SizeMB}MB`)
+
+      if (base64.length > 20 * 1024 * 1024) {
+        return NextResponse.json(
+          { error: `File is too large for AI analysis (${base64SizeMB}MB encoded). Try a file under 15MB.` },
+          { status: 400 }
+        )
+      }
 
       // Determine mime type from extension
       const ext = originalFileName.split('.').pop()?.toLowerCase()
@@ -70,6 +93,7 @@ export async function POST(request: NextRequest) {
         dxf: 'text/plain',
       }
       mimeType = (ext && mimeMap[ext]) || 'application/octet-stream'
+      console.log(`[parse-document] Detected mime type: ${mimeType} (ext: ${ext})`)
 
     } else {
       // Legacy: FormData upload (for small files that come directly)
@@ -146,7 +170,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse with Claude AI
+    console.log(`[parse-document] Sending to Claude AI (mime: ${mimeType}, size: ${fileSize} bytes)`)
     const extracted = await parseDocument(base64, mimeType)
+    console.log(`[parse-document] Claude response received, type: ${extracted.type}, confidence: ${extracted.confidence}`)
 
     return NextResponse.json({
       extracted,
@@ -156,24 +182,37 @@ export async function POST(request: NextRequest) {
       confidence: extracted.confidence || (extracted.type ? 0.7 : 0.3),
     })
   } catch (error) {
-    console.error('Document parse error:', error)
+    console.error('[parse-document] Error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
 
-    if (message.includes('rate_limit') || message.includes('429')) {
+    if (message.includes('rate_limit') || message.includes('429') || message.includes('overloaded')) {
       return NextResponse.json(
         { error: 'AI service is busy. Please wait a moment and try again.' },
         { status: 429 }
       )
     }
-    if (message.includes('timeout') || message.includes('ETIMEDOUT')) {
+    if (message.includes('timeout') || message.includes('ETIMEDOUT') || message.includes('ECONNRESET')) {
       return NextResponse.json(
-        { error: 'Analysis timed out. Try a simpler or smaller file.' },
+        { error: 'Analysis timed out. Try a smaller or simpler file.' },
         { status: 504 }
       )
     }
+    if (message.includes('invalid_api_key') || message.includes('authentication')) {
+      return NextResponse.json(
+        { error: 'AI service authentication failed. Please check API key configuration.' },
+        { status: 500 }
+      )
+    }
+    if (message.includes('too large') || message.includes('max_tokens') || message.includes('content_too_large')) {
+      return NextResponse.json(
+        { error: 'File is too large or complex for AI analysis. Try a smaller file or fewer pages.' },
+        { status: 400 }
+      )
+    }
 
+    // Return the actual error message so we can debug
     return NextResponse.json(
-      { error: 'Failed to analyze document. Please try again.' },
+      { error: `Analysis failed: ${message.substring(0, 200)}` },
       { status: 500 }
     )
   }

@@ -52,22 +52,30 @@ Classification guide:
 
 Return ONLY valid JSON with these keys. If a field cannot be determined, return null.`
 
-  let fileContent: Anthropic.Messages.ContentBlockParam
+  // Build the content block for the file
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fileContent: any
   if (isPdf) {
     fileContent = {
-      type: 'document' as const,
+      type: 'document',
       source: {
-        type: 'base64' as const,
-        media_type: 'application/pdf' as const,
+        type: 'base64',
+        media_type: 'application/pdf',
         data: base64Content,
       },
     }
   } else if (isImage) {
+    // Only these four image types are supported by Claude vision
+    let supportedMime = mimeType
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+      // Default to JPEG for unsupported image types (tiff, bmp, etc.)
+      supportedMime = 'image/jpeg'
+    }
     fileContent = {
-      type: 'image' as const,
+      type: 'image',
       source: {
-        type: 'base64' as const,
-        media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        type: 'base64',
+        media_type: supportedMime,
         data: base64Content,
       },
     }
@@ -75,33 +83,45 @@ Return ONLY valid JSON with these keys. If a field cannot be determined, return 
     // For non-image/non-pdf files, treat as text document
     const textContent = Buffer.from(base64Content, 'base64').toString('utf-8')
     fileContent = {
-      type: 'text' as const,
+      type: 'text',
       text: `Document content:\n${textContent.substring(0, 50000)}`,
     }
   }
 
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          fileContent,
-          {
-            type: 'text',
-            text: 'Analyze this building plan/document. Classify the building type and extract all details. Return only JSON.',
-          },
-        ],
-      },
-    ],
-  })
+  console.log(`[parseDocument] Sending to Claude: type=${fileContent.type}, mime=${fileContent.source?.media_type || 'text'}, base64_length=${base64Content.length}`)
+
+  let response
+  try {
+    response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            fileContent,
+            {
+              type: 'text',
+              text: 'Analyze this building plan/document. Classify the building type and extract all details. Return only JSON.',
+            },
+          ],
+        },
+      ],
+    })
+  } catch (apiError) {
+    const msg = apiError instanceof Error ? apiError.message : String(apiError)
+    console.error('[parseDocument] Claude API error:', msg)
+    throw new Error(`AI analysis failed: ${msg}`)
+  }
 
   const textResp = response.content.find((c) => c.type === 'text')
   if (!textResp || textResp.type !== 'text') {
+    console.error('[parseDocument] No text in Claude response:', JSON.stringify(response.content).substring(0, 500))
     throw new Error('No text response from Claude')
   }
+
+  console.log(`[parseDocument] Claude raw response: ${textResp.text.substring(0, 300)}`)
 
   try {
     const jsonStr = textResp.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -120,7 +140,8 @@ Return ONLY valid JSON with these keys. If a field cannot be determined, return 
       description: parsed.description || '',
     }
   } catch {
-    throw new Error('Failed to parse Claude response as JSON')
+    console.error('[parseDocument] Failed to parse JSON from response:', textResp.text.substring(0, 500))
+    throw new Error('Failed to parse AI response')
   }
 }
 
