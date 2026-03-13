@@ -31,6 +31,21 @@ import {
   PROJECT_TYPES,
 } from './types'
 
+/** Parse "1-2 weeks" / "2-4 weeks" / "1 week" style durations into a day estimate */
+function parseDurationToDays(duration: unknown): number | null {
+  if (!duration || typeof duration !== 'string') return null
+  const match = duration.match(/(\d+)(?:\s*-\s*(\d+))?\s*(day|week|month)/i)
+  if (!match) return null
+  const low = parseInt(match[1])
+  const high = match[2] ? parseInt(match[2]) : low
+  const avg = Math.round((low + high) / 2)
+  const unit = match[3].toLowerCase()
+  if (unit === 'day') return avg
+  if (unit === 'week') return avg * 7
+  if (unit === 'month') return avg * 30
+  return avg
+}
+
 interface PipelineInput {
   address: string
   parcel_id?: string
@@ -238,16 +253,57 @@ export async function runAnalysisPipeline(input: PipelineInput): Promise<{
   // ── Build roadmap ──
   let roadmap: RoadmapStep[] = getDefaultRoadmap(verdict, jurisdiction?.name || 'Local')
 
-  // Check for custom roadmap template
+  // Check for custom roadmap template (filtered by use_type for relevance)
   if (jurisdiction) {
     try {
-      const { data: templates } = await supabase
+      // Try to find a template matching the project's use type first
+      const projectUseType = input.project_inputs.type
+      let { data: templates } = await supabase
         .from('approval_roadmap_templates')
         .select('*')
         .eq('jurisdiction_id', jurisdiction.id)
+        .eq('use_type', projectUseType)
         .limit(1)
-      if (templates?.[0]?.steps) {
-        roadmap = templates[0].steps
+
+      // Fallback: try broader category mapping
+      if (!templates?.length) {
+        const categoryMap: Record<string, string> = {
+          single_family: 'single_family',
+          duplex: 'multifamily',
+          townhome: 'multifamily',
+          multifamily: 'multifamily',
+          apartment: 'multifamily',
+          commercial: 'commercial',
+          retail: 'commercial',
+          office: 'commercial',
+          industrial: 'commercial',
+          mixed_use: 'commercial',
+          adu: 'single_family',
+        }
+        const mapped = categoryMap[projectUseType]
+        if (mapped && mapped !== projectUseType) {
+          const fallback = await supabase
+            .from('approval_roadmap_templates')
+            .select('*')
+            .eq('jurisdiction_id', jurisdiction.id)
+            .eq('use_type', mapped)
+            .limit(1)
+          templates = fallback.data
+        }
+      }
+
+      if (templates?.[0]?.steps && Array.isArray(templates[0].steps) && templates[0].steps.length > 0) {
+        // Map DB template format to RoadmapStep format
+        // DB format: { step, name, description, typical_duration, required_documents }
+        // App format: { order, action, agency, estimated_days, required_documents, notes }
+        roadmap = templates[0].steps.map((s: Record<string, unknown>) => ({
+          order: (s.step as number) || (s.order as number) || 0,
+          action: (s.name as string) || (s.action as string) || '',
+          agency: (s.agency as string) || `${jurisdiction.name} Planning Department`,
+          estimated_days: parseDurationToDays(s.typical_duration as string) || (s.estimated_days as number) || 14,
+          required_documents: (s.required_documents as string[]) || [],
+          notes: (s.description as string) || (s.notes as string) || '',
+        }))
       }
     } catch {
       // Use default roadmap
