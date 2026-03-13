@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { Verdict, StandardComparison } from './types'
+import { Verdict, StandardComparison, ApplicationFormData } from './types'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -374,6 +374,82 @@ Return ONLY valid JSON with:
       {
         role: 'user',
         content: `Generate rezoning application content for:\n\nAddress: ${address}\nJurisdiction: ${jurisdiction}\nCurrent Zoning: ${currentZone}\nRequested Zoning: ${requestedZone}\nProject: ${projectDescription}\n\nBuilding Details:\n${JSON.stringify(buildingInfo, null, 2)}`,
+      },
+    ],
+  })
+
+  const textContent = response.content.find((c) => c.type === 'text')
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('No text response from Claude')
+  }
+
+  const jsonStr = textContent.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+  return JSON.parse(jsonStr)
+}
+
+// Generate building permit or conditional use permit application content
+export async function generatePermitApplication(context: {
+  application_type: 'building_permit' | 'conditional_use'
+  address: string
+  zone_code: string
+  zone_name: string | null
+  jurisdiction: string
+  project_type: string
+  project_type_label: string
+  units: number | null
+  stories: number | null
+  sqft: number | null
+  applicant_info: ApplicationFormData
+}): Promise<{ sections: { title: string; content: string }[]; checklist: string[] }> {
+  const isCUP = context.application_type === 'conditional_use'
+
+  const systemPrompt = isCUP
+    ? `You are an expert land use planning consultant. Generate professional conditional use permit (CUP) application content for submission to a municipal planning department.
+
+Return ONLY valid JSON with:
+- sections: Array of { title: string, content: string } with these sections:
+  1. "Project Narrative" - Detailed description of the proposed project
+  2. "Justification for Conditional Use" - Why this use should be approved despite requiring conditional permission
+  3. "Site & Context Description" - Description of the property and surrounding area
+  4. "Community Impact Assessment" - How the project will affect the surrounding community
+  5. "Compatibility Statement" - How the project is compatible with surrounding uses and the neighborhood character
+  6. "Conditions Acknowledgment" - Conditions the applicant is willing to accept
+  7. "Applicant Information" - Formatted applicant and property owner details
+- checklist: Array of strings listing required documents for submission`
+    : `You are an expert land use planning consultant. Generate professional building permit application content for submission to a municipal building department.
+
+Return ONLY valid JSON with:
+- sections: Array of { title: string, content: string } with these sections:
+  1. "Project Narrative" - Detailed description of the proposed project
+  2. "Site Description" - Description of the property, lot, and current conditions
+  3. "Construction Scope" - What will be built, materials, methods
+  4. "Utility Connections" - Water, sewer, electric, gas connections needed
+  5. "Estimated Timeline" - Construction timeline and phases
+  6. "Applicant Information" - Formatted applicant and property owner details
+- checklist: Array of strings listing required documents for submission`
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [
+      {
+        role: 'user',
+        content: `Generate ${isCUP ? 'conditional use permit' : 'building permit'} application content for:
+
+Address: ${context.address}
+Jurisdiction: ${context.jurisdiction}
+Current Zoning: ${context.zone_code}${context.zone_name ? ` (${context.zone_name})` : ''}
+Project Type: ${context.project_type_label}
+Units: ${context.units || 'N/A'}
+Stories: ${context.stories || 'N/A'}
+Square Footage: ${context.sqft ? `${context.sqft.toLocaleString()} sq ft` : 'N/A'}
+
+Applicant: ${context.applicant_info.applicant_name}
+Email: ${context.applicant_info.applicant_email}
+Phone: ${context.applicant_info.applicant_phone}
+Property Owner: ${context.applicant_info.property_owner_is_applicant ? 'Same as applicant' : context.applicant_info.property_owner_name}
+${context.applicant_info.additional_notes ? `Additional Notes: ${context.applicant_info.additional_notes}` : ''}`,
       },
     ],
   })

@@ -1,13 +1,18 @@
 'use client'
 
-import { StructuredAnalysisResult, Verdict } from '@/lib/types'
+import { StructuredAnalysisResult, Verdict, ApplicationType, ProjectInputs } from '@/lib/types'
 import RoadmapSteps from './RoadmapSteps'
+import ZoneRecommendation from './ZoneRecommendation'
 
 interface StructuredResultProps {
   result: StructuredAnalysisResult
   onSave?: () => void
   onExport?: () => void
   saving?: boolean
+  projectInputs?: ProjectInputs
+  jurisdictionId?: string
+  currentZoneId?: string
+  onStartApplication?: (type: ApplicationType, recommendedZone?: string) => void
 }
 
 const verdictConfig: Record<Verdict, {
@@ -64,7 +69,16 @@ const confidenceLevelConfig = {
   low: { bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500' },
 }
 
-export default function StructuredResult({ result, onSave, onExport, saving }: StructuredResultProps) {
+export default function StructuredResult({
+  result,
+  onSave,
+  onExport,
+  saving,
+  projectInputs,
+  jurisdictionId,
+  currentZoneId,
+  onStartApplication,
+}: StructuredResultProps) {
   const vc = verdictConfig[result.verdict.status]
   const cc = confidenceLevelConfig[result.confidence.level]
 
@@ -273,6 +287,51 @@ export default function StructuredResult({ result, onSave, onExport, saving }: S
       {/* Section 6: Approval Roadmap */}
       {result.roadmap.length > 0 && (
         <RoadmapSteps steps={result.roadmap} />
+      )}
+
+      {/* Section 6b: Zone Recommendation (prohibited verdicts) */}
+      {result.verdict.status === 'prohibited' && jurisdictionId && projectInputs && onStartApplication && (
+        <ZoneRecommendation
+          jurisdictionId={jurisdictionId}
+          projectType={projectInputs.type}
+          projectTypeLabel={result.project_summary.type_label}
+          currentZoneCode={result.parcel_summary.zone_code}
+          currentZoneId={currentZoneId}
+          onStartRezoning={(zoneCode) => onStartApplication('rezoning', zoneCode)}
+        />
+      )}
+
+      {/* Section 6c: Application CTA (allowed/conditional verdicts) */}
+      {onStartApplication && result.verdict.status === 'allowed' && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+          <h3 className="font-semibold text-green-900 mb-2">Ready to proceed?</h3>
+          <p className="text-sm text-green-700 mb-4">
+            Your project is allowed as-of-right. Start your building permit application now.
+          </p>
+          <button
+            onClick={() => onStartApplication('building_permit')}
+            className="px-6 py-3 bg-green-600 text-white font-medium rounded-xl
+                       hover:bg-green-700 transition-colors"
+          >
+            Start Building Permit Application →
+          </button>
+        </div>
+      )}
+
+      {onStartApplication && result.verdict.status === 'conditional' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+          <h3 className="font-semibold text-amber-900 mb-2">Conditional approval required</h3>
+          <p className="text-sm text-amber-700 mb-4">
+            Your project requires a conditional use permit. Start your application now.
+          </p>
+          <button
+            onClick={() => onStartApplication('conditional_use')}
+            className="px-6 py-3 bg-amber-600 text-white font-medium rounded-xl
+                       hover:bg-amber-700 transition-colors"
+          >
+            Start Conditional Use Application →
+          </button>
+        </div>
       )}
 
       {/* Section 7: Sources */}

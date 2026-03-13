@@ -264,6 +264,33 @@ export interface UserProfile {
   created_at: string
 }
 
+// ─── Application Assistant types ───
+
+export type ApplicationType = 'building_permit' | 'conditional_use' | 'rezoning'
+
+export interface ApplicationFormData {
+  applicant_name: string
+  applicant_email: string
+  applicant_phone: string
+  property_owner_name: string
+  property_owner_is_applicant: boolean
+  additional_notes: string
+}
+
+export interface GeneratedApplication {
+  type: ApplicationType
+  sections: { title: string; content: string }[]
+  checklist: string[]
+  generated_at: string
+}
+
+export interface CompatibleZone {
+  zone_code: string
+  zone_name: string | null
+  use_status: 'permitted' | 'conditional'
+  development_standards: DevStandards
+}
+
 // ─── Constants ───
 
 export const PROJECT_TYPES = [

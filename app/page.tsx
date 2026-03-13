@@ -8,11 +8,12 @@ import ParcelConfirmation from '@/components/ParcelConfirmation'
 import ProjectForm from '@/components/ProjectForm'
 import StructuredResult from '@/components/StructuredResult'
 import LoadingSteps from '@/components/LoadingSteps'
-import { ProjectInputs, StructuredAnalysisResult, ZoningDistrict, Jurisdiction } from '@/lib/types'
+import { ProjectInputs, StructuredAnalysisResult, ZoningDistrict, Jurisdiction, ApplicationType } from '@/lib/types'
+import ApplicationAssistant from '@/components/ApplicationAssistant'
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false })
 
-type Step = 'search' | 'confirm_parcel' | 'form' | 'loading' | 'result'
+type Step = 'search' | 'confirm_parcel' | 'form' | 'loading' | 'result' | 'application'
 
 interface ParcelData {
   address: string
@@ -38,6 +39,8 @@ export default function HomePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [matchQuality, setMatchQuality] = useState<'exact' | 'fuzzy' | 'none'>('none')
+  const [applicationType, setApplicationType] = useState<ApplicationType | null>(null)
+  const [recommendedZone, setRecommendedZone] = useState<string | null>(null)
 
   const handleAddressSelect = async (selectedAddress: string, lat: number, lng: number) => {
     setAddress(selectedAddress)
@@ -183,6 +186,12 @@ export default function HomePage() {
     }
   }
 
+  const handleStartApplication = (type: ApplicationType, recZone?: string) => {
+    setApplicationType(type)
+    setRecommendedZone(recZone || null)
+    setStep('application')
+  }
+
   const handleReset = () => {
     setStep('search')
     setAddress('')
@@ -194,6 +203,8 @@ export default function HomePage() {
     setWarning(null)
     setError(null)
     setMatchQuality('none')
+    setApplicationType(null)
+    setRecommendedZone(null)
   }
 
   return (
@@ -389,6 +400,32 @@ export default function HomePage() {
               onSave={handleSave}
               onExport={handleExport}
               saving={saving}
+              projectInputs={projectInputs || undefined}
+              jurisdictionId={jurisdiction?.id || parcelData?.jurisdiction_id || undefined}
+              currentZoneId={zone?.id || parcelData?.zoning_district_id || undefined}
+              onStartApplication={handleStartApplication}
+            />
+          </div>
+        )}
+        {/* Application Step */}
+        {step === 'application' && result && applicationType && projectInputs && (
+          <div className="max-w-4xl mx-auto px-4 py-8">
+            <button
+              onClick={() => setStep('result')}
+              className="text-sm text-gray-500 hover:text-gray-700 mb-6 flex items-center gap-1"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to results
+            </button>
+
+            <ApplicationAssistant
+              applicationType={applicationType}
+              analysisResult={result}
+              projectInputs={projectInputs}
+              recommendedZone={recommendedZone || undefined}
+              onBack={() => setStep('result')}
             />
           </div>
         )}

@@ -5,7 +5,9 @@ import {
   RoadmapStep,
   Verdict,
   ConfidenceMetadata,
+  CompatibleZone,
 } from './types'
+import { getServiceClient } from './supabase'
 
 // ─── Core feasibility check (deterministic rule evaluation) ───
 
@@ -196,6 +198,48 @@ export function synthesizeConfidence(factors: {
     factors: weightedFactors,
     caveats,
   }
+}
+
+// ─── Find compatible zones for a project type (deterministic DB query) ───
+
+export async function findCompatibleZones(
+  jurisdictionId: string,
+  projectType: string,
+  currentZoneId?: string
+): Promise<CompatibleZone[]> {
+  const supabase = getServiceClient()
+
+  const { data: allZones } = await supabase
+    .from('zoning_districts')
+    .select('*')
+    .eq('jurisdiction_id', jurisdictionId)
+
+  if (!allZones) return []
+
+  return allZones
+    .filter((z: ZoningDistrict) => {
+      // Exclude the current zone (they already know it doesn't work)
+      if (currentZoneId && z.id === currentZoneId) return false
+
+      return (
+        z.permitted_uses?.includes(projectType) ||
+        z.conditional_uses?.includes(projectType)
+      )
+    })
+    .map((z: ZoningDistrict) => ({
+      zone_code: z.code,
+      zone_name: z.name,
+      use_status: z.permitted_uses?.includes(projectType)
+        ? ('permitted' as const)
+        : ('conditional' as const),
+      development_standards: z.development_standards,
+    }))
+    // Sort: permitted zones first, then conditional
+    .sort((a: CompatibleZone, b: CompatibleZone) => {
+      if (a.use_status === 'permitted' && b.use_status === 'conditional') return -1
+      if (a.use_status === 'conditional' && b.use_status === 'permitted') return 1
+      return 0
+    })
 }
 
 // ─── Confidence (legacy helper) ───
