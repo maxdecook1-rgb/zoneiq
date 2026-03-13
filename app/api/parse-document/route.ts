@@ -197,6 +197,12 @@ export async function POST(request: NextRequest) {
         { status: 504 }
       )
     }
+    if (message.includes('credit balance') || message.includes('billing') || message.includes('insufficient')) {
+      return NextResponse.json(
+        { error: 'AI plan analysis is temporarily unavailable (billing issue). Please fill in the project details manually using the form below.' },
+        { status: 402 }
+      )
+    }
     if (message.includes('invalid_api_key') || message.includes('authentication')) {
       return NextResponse.json(
         { error: 'AI service authentication failed. Please check API key configuration.' },
