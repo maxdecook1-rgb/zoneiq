@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 interface Suggestion {
   id: string
@@ -18,23 +18,48 @@ export default function AddressSearch({ onAddressSelect, placeholder = 'Enter a 
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
 
   const searchAddress = useCallback(async (value: string) => {
     if (value.length < 3) {
       setSuggestions([])
+      setError(null)
       return
     }
 
     setLoading(true)
+    setError(null)
     try {
       const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (!token) {
+        setError('Mapbox token not configured')
+        setLoading(false)
+        return
+      }
       const res = await fetch(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value)}.json?access_token=${token}&country=US&types=address&limit=5`
       )
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        console.error('Mapbox API error:', res.status, errData)
+        setError('Address lookup failed')
+        setSuggestions([])
+        return
+      }
       const data = await res.json()
       setSuggestions(data.features || [])
       setShowSuggestions(true)
-    } catch {
+    } catch (err) {
+      console.error('Address search error:', err)
+      setError('Could not reach address service')
       setSuggestions([])
     } finally {
       setLoading(false)
@@ -45,14 +70,19 @@ export default function AddressSearch({ onAddressSelect, placeholder = 'Enter a 
     const value = e.target.value
     setQuery(value)
 
-    const timeout = setTimeout(() => searchAddress(value), 300)
-    return () => clearTimeout(timeout)
+    // Cancel previous debounce
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    debounceRef.current = setTimeout(() => {
+      searchAddress(value)
+    }, 300)
   }
 
   const handleSelect = (suggestion: Suggestion) => {
     setQuery(suggestion.place_name)
     setShowSuggestions(false)
     setSuggestions([])
+    setError(null)
     onAddressSelect(suggestion.place_name, suggestion.center[1], suggestion.center[0])
   }
 
@@ -90,6 +120,12 @@ export default function AddressSearch({ onAddressSelect, placeholder = 'Enter a 
           </div>
         )}
       </div>
+
+      {error && (
+        <div className="mt-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          {error}
+        </div>
+      )}
 
       {showSuggestions && suggestions.length > 0 && (
         <ul className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
