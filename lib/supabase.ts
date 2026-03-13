@@ -7,7 +7,10 @@ export function getSupabase(): SupabaseClient {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     if (!url || !key) {
-      throw new Error('Missing Supabase environment variables')
+      console.error('Missing Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)')
+      // Return a dummy client that won't crash the app but will fail gracefully
+      _supabase = createClient('https://placeholder.supabase.co', 'placeholder-key')
+      return _supabase
     }
     _supabase = createClient(url, key)
   }

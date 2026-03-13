@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Project, FeasibilityResult as FeasibilityResultType, StructuredAnalysisResult } from '@/lib/types'
 import FeasibilityResult from '@/components/FeasibilityResult'
 import StructuredResult from '@/components/StructuredResult'
-import MapView from '@/components/MapView'
+
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false })
 
 export default function ProjectPage() {
   const params = useParams()

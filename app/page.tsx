@@ -1,14 +1,16 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useAuth } from '@/lib/auth-context'
 import AddressSearch from '@/components/AddressSearch'
 import ParcelConfirmation from '@/components/ParcelConfirmation'
 import ProjectForm from '@/components/ProjectForm'
 import StructuredResult from '@/components/StructuredResult'
-import MapView from '@/components/MapView'
 import LoadingSteps from '@/components/LoadingSteps'
 import { ProjectInputs, StructuredAnalysisResult, ZoningDistrict, Jurisdiction } from '@/lib/types'
+
+const MapView = dynamic(() => import('@/components/MapView'), { ssr: false })
 
 type Step = 'search' | 'confirm_parcel' | 'form' | 'loading' | 'result'
 
