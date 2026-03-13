@@ -23,11 +23,63 @@ export async function GET(request: NextRequest) {
 
     // 2. Search parcels table for matching address
     const streetPart = address.split(',')[0].trim()
-    const { data: parcels } = await supabase
+
+    // Try exact street match first
+    let { data: parcels } = await supabase
       .from('parcels')
       .select('*')
       .ilike('address', `%${streetPart}%`)
       .limit(1)
+
+    // If no match, try normalizing common street abbreviations
+    if (!parcels?.length) {
+      const abbreviations: Record<string, string[]> = {
+        'Lane': ['Ln'], 'Ln': ['Lane'],
+        'Street': ['St'], 'St': ['Street'],
+        'Road': ['Rd'], 'Rd': ['Road'],
+        'Drive': ['Dr'], 'Dr': ['Drive'],
+        'Avenue': ['Ave'], 'Ave': ['Avenue'],
+        'Boulevard': ['Blvd'], 'Blvd': ['Boulevard'],
+        'Circle': ['Cir'], 'Cir': ['Circle'],
+        'Court': ['Ct'], 'Ct': ['Court'],
+        'Place': ['Pl'], 'Pl': ['Place'],
+        'Parkway': ['Pkwy'], 'Pkwy': ['Parkway'],
+        'Highway': ['Hwy'], 'Hwy': ['Highway'],
+        'Trail': ['Trl'], 'Trl': ['Trail'],
+        'Way': ['Wy'], 'Wy': ['Way'],
+      }
+
+      for (const [full, abbrs] of Object.entries(abbreviations)) {
+        if (streetPart.includes(full)) {
+          for (const abbr of abbrs) {
+            const normalized = streetPart.replace(new RegExp(`\\b${full}\\b`, 'i'), abbr)
+            const { data: found } = await supabase
+              .from('parcels')
+              .select('*')
+              .ilike('address', `%${normalized}%`)
+              .limit(1)
+            if (found?.length) {
+              parcels = found
+              break
+            }
+          }
+          if (parcels?.length) break
+        }
+      }
+    }
+
+    // If still no match, try just the street number + name (without suffix)
+    if (!parcels?.length) {
+      const numberAndName = streetPart.match(/^(\d+\s+\w+)/)?.[1]
+      if (numberAndName) {
+        const { data: found } = await supabase
+          .from('parcels')
+          .select('*')
+          .ilike('address', `%${numberAndName}%`)
+          .limit(1)
+        if (found?.length) parcels = found
+      }
+    }
 
     const parcel = parcels?.[0] || null
 
@@ -58,24 +110,14 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 3. Parcel not found — try to find jurisdiction by address context
+    // 3. Parcel not found — try to find jurisdiction by geocoded state/county
+    //    but do NOT guess a zoning district (that leads to wrong results)
     const { data: jurisdictions } = await supabase
       .from('jurisdictions')
       .select('*')
       .limit(1)
 
     const fallbackJurisdiction = jurisdictions?.[0] || null
-
-    let fallbackZone = null
-    if (fallbackJurisdiction) {
-      const { data: zones } = await supabase
-        .from('zoning_districts')
-        .select('*')
-        .eq('jurisdiction_id', fallbackJurisdiction.id)
-        .limit(1)
-
-      fallbackZone = zones?.[0] || null
-    }
 
     return NextResponse.json({
       parcel: {
@@ -86,12 +128,12 @@ export async function GET(request: NextRequest) {
         acreage: null,
         apn: null,
         jurisdiction_id: fallbackJurisdiction?.id || null,
-        zoning_district_id: fallbackZone?.id || null,
+        zoning_district_id: null,
       },
       jurisdiction: fallbackJurisdiction,
-      zone: fallbackZone,
+      zone: null,
       match_quality: 'none',
-      warning: 'This parcel was not found in our database. Results are based on limited data and may not be accurate.',
+      warning: 'This parcel was not found in our database. Zoning information is unavailable — please verify with your local planning department.',
     })
   } catch (error) {
     console.error('Parcel lookup error:', error)
