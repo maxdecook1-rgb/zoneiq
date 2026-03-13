@@ -35,6 +35,7 @@ interface PipelineInput {
   address: string
   parcel_id?: string
   project_inputs: ProjectInputs
+  acreage_override?: number
 }
 
 interface PipelineTrace {
@@ -167,7 +168,7 @@ export async function runAnalysisPipeline(input: PipelineInput): Promise<{
   let allCompliant = true
 
   if (zone) {
-    const acreage = parcel?.metadata?.acreage ?? undefined
+    const acreage = parcel?.metadata?.acreage ?? input.acreage_override ?? undefined
 
     const checkResult = runFeasibilityCheck(input.project_inputs, zone, acreage)
     useStatus = checkResult.permitted_use_status
@@ -196,7 +197,7 @@ export async function runAnalysisPipeline(input: PipelineInput): Promise<{
     zoneFound: !!zone,
     hasDevStandards: !!(ds.max_height_ft || ds.max_stories || ds.max_far),
     hasSetbacks: !!(ds.setbacks?.front_ft || ds.setbacks?.side_ft || ds.setbacks?.rear_ft),
-    hasAcreage: !!(parcel?.metadata?.acreage),
+    hasAcreage: !!(parcel?.metadata?.acreage || input.acreage_override),
     hasPermittedUses: !!(zone?.permitted_uses?.length),
   })
 
@@ -269,7 +270,7 @@ export async function runAnalysisPipeline(input: PipelineInput): Promise<{
     parcel_summary: {
       address: parcel?.address || input.address,
       apn: parcel?.apn || null,
-      acreage: parcel?.metadata?.acreage || null,
+      acreage: parcel?.metadata?.acreage || input.acreage_override || null,
       jurisdiction_name: jurisdiction?.name || 'Unknown',
       zone_code: zone?.code || 'Unknown',
       zone_name: zone?.name || null,

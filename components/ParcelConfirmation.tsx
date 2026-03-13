@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import dynamic from 'next/dynamic'
 
 const MapView = dynamic(() => import('./MapView'), { ssr: false })
@@ -14,7 +15,7 @@ interface ParcelConfirmationProps {
   zoneName: string | null
   jurisdictionName: string | null
   matchQuality: 'exact' | 'fuzzy' | 'none'
-  onConfirm: () => void
+  onConfirm: (overrides?: { acreage?: number }) => void
   onSearchAgain: () => void
 }
 
@@ -31,6 +32,17 @@ export default function ParcelConfirmation({
   onConfirm,
   onSearchAgain,
 }: ParcelConfirmationProps) {
+  const [manualAcreage, setManualAcreage] = useState('')
+  const showLotInput = !acreage
+
+  const handleConfirm = () => {
+    const overrides: { acreage?: number } = {}
+    if (showLotInput && manualAcreage) {
+      overrides.acreage = parseFloat(manualAcreage)
+    }
+    onConfirm(Object.keys(overrides).length > 0 ? overrides : undefined)
+  }
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       {/* Map */}
@@ -88,10 +100,34 @@ export default function ParcelConfirmation({
               <p className="font-medium text-gray-900">{apn}</p>
             </div>
           )}
-          {acreage && (
+          {acreage ? (
             <div>
               <p className="text-gray-500">Lot Size</p>
               <p className="font-medium text-gray-900">{acreage} acres ({Math.round(acreage * 43560).toLocaleString()} sq ft)</p>
+            </div>
+          ) : (
+            <div className="col-span-2">
+              <label className="block text-gray-500 mb-1">Lot Size (acres)</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 0.5"
+                  value={manualAcreage}
+                  onChange={(e) => setManualAcreage(e.target.value)}
+                  className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900
+                             focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none"
+                />
+                {manualAcreage && !isNaN(parseFloat(manualAcreage)) && (
+                  <span className="text-xs text-gray-500">
+                    = {Math.round(parseFloat(manualAcreage) * 43560).toLocaleString()} sq ft
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Optional — enables FAR and lot coverage checks. Check your tax record or county GIS for lot size.
+              </p>
             </div>
           )}
         </div>
@@ -100,7 +136,7 @@ export default function ParcelConfirmation({
       {/* Actions */}
       <div className="flex gap-3">
         <button
-          onClick={onConfirm}
+          onClick={handleConfirm}
           className="flex-1 px-6 py-3 bg-blue-600 text-white font-medium rounded-xl
                      hover:bg-blue-700 transition-colors text-center"
         >

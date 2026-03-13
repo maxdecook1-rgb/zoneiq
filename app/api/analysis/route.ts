@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { address, parcel_id, project_inputs } = body
+    const { address, parcel_id, project_inputs, acreage_override } = body
 
     if (!address) {
       return NextResponse.json({ error: 'Address is required' }, { status: 400 })
@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
       address,
       parcel_id: parcel_id || undefined,
       project_inputs,
+      acreage_override: acreage_override || undefined,
     })
 
     return NextResponse.json({

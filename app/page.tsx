@@ -79,7 +79,10 @@ export default function HomePage() {
     }
   }
 
-  const handleParcelConfirm = () => {
+  const handleParcelConfirm = (overrides?: { acreage?: number }) => {
+    if (overrides?.acreage && parcelData) {
+      setParcelData({ ...parcelData, acreage: overrides.acreage })
+    }
     setStep('form')
   }
 
@@ -97,6 +100,7 @@ export default function HomePage() {
           address,
           parcel_id: parcelData?.id || undefined,
           project_inputs: inputs,
+          acreage_override: parcelData?.acreage || undefined,
         }),
       })
 
