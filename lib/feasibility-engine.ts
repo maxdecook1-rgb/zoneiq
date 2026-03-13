@@ -1,58 +1,13 @@
-export interface ProjectInputs {
-  type: 'single_family' | 'multifamily' | 'commercial' | 'mixed_use' | 'adu' | 'industrial' | 'other'
-  units?: number
-  stories?: number
-  sqft?: number
-  parking?: number
-}
+import {
+  ProjectInputs,
+  ZoningDistrict,
+  StandardComparison,
+  RoadmapStep,
+  Verdict,
+  ConfidenceMetadata,
+} from './types'
 
-export interface DevStandards {
-  min_lot_size_sqft?: number
-  max_height_ft?: number
-  max_stories?: number
-  front_setback_ft?: number
-  side_setback_ft?: number
-  rear_setback_ft?: number
-  max_lot_coverage_pct?: number
-  max_far?: number
-  min_parking_per_unit?: number
-}
-
-export interface ZoningDistrict {
-  id: string
-  code: string
-  name: string | null
-  description: string | null
-  permitted_uses: string[]
-  conditional_uses: string[]
-  prohibited_uses: string[]
-  dev_standards: DevStandards
-}
-
-export interface StandardComparison {
-  standard: string
-  proposed: number | string
-  allowed: number | string
-  compliant: boolean
-}
-
-export interface FeasibilityResult {
-  status: 'permitted' | 'conditional' | 'not_permitted'
-  confidence: 'high' | 'medium' | 'low'
-  permitted_use_status: string
-  standards_comparison: StandardComparison[]
-  roadmap_steps: RoadmapStep[]
-  summary: string
-}
-
-export interface RoadmapStep {
-  order: number
-  action: string
-  agency: string
-  estimated_days: number
-  required_documents: string[]
-  notes: string
-}
+// ─── Core feasibility check (deterministic rule evaluation) ───
 
 export function runFeasibilityCheck(
   projectInputs: ProjectInputs,
@@ -64,7 +19,8 @@ export function runFeasibilityCheck(
   standards_comparison: StandardComparison[]
 } {
   const { type, units, stories, sqft, parking } = projectInputs
-  const { permitted_uses, conditional_uses, dev_standards } = zoningDistrict
+  const { permitted_uses, conditional_uses, development_standards } = zoningDistrict
+  const ds = development_standards || {}
 
   // 1. Determine use status
   let permitted_use_status = 'not_permitted'
@@ -77,65 +33,109 @@ export function runFeasibilityCheck(
   // 2. Compare development standards
   const standards_comparison: StandardComparison[] = []
 
-  if (stories && dev_standards?.max_stories) {
+  if (stories && ds.max_stories) {
     standards_comparison.push({
       standard: 'Building Height (Stories)',
       proposed: stories,
-      allowed: dev_standards.max_stories,
-      compliant: stories <= dev_standards.max_stories,
+      allowed: ds.max_stories,
+      compliant: stories <= ds.max_stories,
     })
   }
 
-  if (dev_standards?.max_height_ft) {
-    // Rough estimate: ~10-12 ft per story
+  if (ds.max_height_ft) {
     const estimatedHeight = (stories || 1) * 11
     standards_comparison.push({
       standard: 'Building Height (Feet)',
       proposed: `~${estimatedHeight} ft (estimated)`,
-      allowed: `${dev_standards.max_height_ft} ft`,
-      compliant: estimatedHeight <= dev_standards.max_height_ft,
+      allowed: `${ds.max_height_ft} ft`,
+      compliant: estimatedHeight <= ds.max_height_ft,
     })
   }
 
-  if (sqft && dev_standards?.max_far && parcelAcreage) {
+  if (sqft && ds.max_far && parcelAcreage) {
     const lotSqft = parcelAcreage * 43560
     const proposedFar = sqft / lotSqft
     standards_comparison.push({
       standard: 'Floor Area Ratio (FAR)',
       proposed: Number(proposedFar.toFixed(2)),
-      allowed: dev_standards.max_far,
-      compliant: proposedFar <= dev_standards.max_far,
+      allowed: ds.max_far,
+      compliant: proposedFar <= ds.max_far,
     })
-  } else if (sqft && dev_standards?.max_far) {
+  } else if (sqft && ds.max_far) {
     standards_comparison.push({
       standard: 'Floor Area Ratio (FAR)',
       proposed: 'Lot size needed',
-      allowed: dev_standards.max_far,
-      compliant: true, // Cannot determine without lot size
+      allowed: ds.max_far,
+      compliant: true,
     })
   }
 
-  if (parking !== undefined && dev_standards?.min_parking_per_unit && units) {
-    const required_parking = Math.ceil(units * dev_standards.min_parking_per_unit)
+  if (parking !== undefined && ds.min_parking_spaces && units) {
+    const requiredParking = Math.ceil(units * ds.min_parking_spaces)
     standards_comparison.push({
       standard: 'Parking Spaces',
       proposed: parking,
-      allowed: `${required_parking} minimum`,
-      compliant: parking >= required_parking,
+      allowed: `${requiredParking} minimum`,
+      compliant: parking >= requiredParking,
     })
   }
 
-  if (dev_standards?.min_lot_size_sqft && parcelAcreage) {
+  if (ds.min_lot_sqft && parcelAcreage) {
     const lotSqft = parcelAcreage * 43560
     standards_comparison.push({
       standard: 'Minimum Lot Size',
       proposed: `${Math.round(lotSqft).toLocaleString()} sq ft`,
-      allowed: `${dev_standards.min_lot_size_sqft.toLocaleString()} sq ft`,
-      compliant: lotSqft >= dev_standards.min_lot_size_sqft,
+      allowed: `${ds.min_lot_sqft.toLocaleString()} sq ft`,
+      compliant: lotSqft >= ds.min_lot_sqft,
     })
   }
 
-  // 3. Determine overall status
+  // Lot coverage check
+  if (ds.max_lot_coverage_pct && sqft && parcelAcreage && stories) {
+    const footprintSqft = sqft / (stories || 1)
+    const lotSqft = parcelAcreage * 43560
+    const coveragePct = (footprintSqft / lotSqft) * 100
+    standards_comparison.push({
+      standard: 'Lot Coverage',
+      proposed: `${coveragePct.toFixed(1)}%`,
+      allowed: `${ds.max_lot_coverage_pct}% max`,
+      compliant: coveragePct <= ds.max_lot_coverage_pct,
+    })
+  }
+
+  // 3. Setback comparisons (from nested setbacks object)
+  if (ds.setbacks) {
+    const setbacks = ds.setbacks
+    if (setbacks.front_ft) {
+      standards_comparison.push({
+        standard: 'Front Setback',
+        proposed: 'Per site plan',
+        allowed: `${setbacks.front_ft} ft`,
+        compliant: true, // Cannot verify without building placement data
+        notes: 'Verify building placement meets setback requirement',
+      })
+    }
+    if (setbacks.side_ft) {
+      standards_comparison.push({
+        standard: 'Side Setback',
+        proposed: 'Per site plan',
+        allowed: `${setbacks.side_ft} ft`,
+        compliant: true,
+        notes: 'Verify building placement meets setback requirement',
+      })
+    }
+    if (setbacks.rear_ft) {
+      standards_comparison.push({
+        standard: 'Rear Setback',
+        proposed: 'Per site plan',
+        allowed: `${setbacks.rear_ft} ft`,
+        compliant: true,
+        notes: 'Verify building placement meets setback requirement',
+      })
+    }
+  }
+
+  // 4. Determine overall status
   const allStandardsMet = standards_comparison.length === 0 || standards_comparison.every((s) => s.compliant)
   let status: 'permitted' | 'conditional' | 'not_permitted' = 'not_permitted'
 
@@ -150,6 +150,56 @@ export function runFeasibilityCheck(
   return { status, permitted_use_status, standards_comparison }
 }
 
+// ─── M1: Map 3-state + use status to 4-state Verdict ───
+
+export function mapToVerdict(
+  status: 'permitted' | 'conditional' | 'not_permitted',
+  useFoundInAnyList: boolean
+): Verdict {
+  if (!useFoundInAnyList) return 'uncertain'
+  if (status === 'permitted') return 'allowed'
+  if (status === 'conditional') return 'conditional'
+  return 'prohibited'
+}
+
+// ─── M1: Synthesize confidence score from factors ───
+
+export function synthesizeConfidence(factors: {
+  parcelFound: boolean
+  zoneFound: boolean
+  hasDevStandards: boolean
+  hasSetbacks: boolean
+  hasAcreage: boolean
+  hasPermittedUses: boolean
+}): ConfidenceMetadata {
+  const weightedFactors = [
+    { name: 'Parcel found in database', present: factors.parcelFound, weight: 0.3 },
+    { name: 'Zoning district identified', present: factors.zoneFound, weight: 0.25 },
+    { name: 'Development standards available', present: factors.hasDevStandards, weight: 0.2 },
+    { name: 'Setback requirements available', present: factors.hasSetbacks, weight: 0.1 },
+    { name: 'Lot size / acreage known', present: factors.hasAcreage, weight: 0.05 },
+    { name: 'Permitted uses defined', present: factors.hasPermittedUses, weight: 0.1 },
+  ]
+
+  const score = weightedFactors.reduce((sum, f) => sum + (f.present ? f.weight : 0), 0)
+  const level = score >= 0.75 ? 'high' : score >= 0.45 ? 'medium' : 'low'
+
+  const caveats: string[] = []
+  if (!factors.parcelFound) caveats.push('Parcel not found in database — results based on limited data.')
+  if (!factors.zoneFound) caveats.push('Zoning district could not be determined.')
+  if (!factors.hasDevStandards) caveats.push('Development standards not available for this zone.')
+  if (!factors.hasAcreage) caveats.push('Lot size unknown — FAR and lot coverage checks skipped.')
+
+  return {
+    score: Math.round(score * 100) / 100,
+    level,
+    factors: weightedFactors,
+    caveats,
+  }
+}
+
+// ─── Confidence (legacy helper) ───
+
 export function determineConfidence(
   parcelFound: boolean,
   hasFullDevStandards: boolean
@@ -159,11 +209,13 @@ export function determineConfidence(
   return 'low'
 }
 
+// ─── Default roadmap ───
+
 export function getDefaultRoadmap(
   status: string,
   jurisdictionName: string
 ): RoadmapStep[] {
-  if (status === 'permitted') {
+  if (status === 'permitted' || status === 'allowed') {
     return [
       {
         order: 1,
@@ -234,7 +286,7 @@ export function getDefaultRoadmap(
     ]
   }
 
-  // not_permitted
+  // not_permitted / prohibited
   return [
     {
       order: 1,

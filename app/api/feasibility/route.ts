@@ -40,11 +40,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!parcel && address) {
-      // Search by address
+      const streetPart = address.split(',')[0].trim()
       const { data: parcels } = await supabase
         .from('parcels')
         .select('*')
-        .ilike('address', `%${address.split(',')[0]}%`)
+        .ilike('address', `%${streetPart}%`)
         .limit(1)
 
       parcel = parcels?.[0] || null
@@ -52,12 +52,12 @@ export async function POST(request: NextRequest) {
 
     if (parcel) {
       parcelFound = true
-      // 2. Get zoning district
-      if (parcel.current_zone_id) {
+      // 2. Get zoning district (use correct column name)
+      if (parcel.zoning_district_id) {
         const { data } = await supabase
           .from('zoning_districts')
           .select('*')
-          .eq('id', parcel.current_zone_id)
+          .eq('id', parcel.zoning_district_id)
           .single()
         zone = data
       }
@@ -71,10 +71,8 @@ export async function POST(request: NextRequest) {
         jurisdiction = data
       }
     } else {
-      // Parcel not in DB — geocode and try to find jurisdiction
       const geocoded = address ? await geocodeAddress(address) : null
 
-      // Fallback: use first available jurisdiction and zone
       const { data: jurisdictions } = await supabase
         .from('jurisdictions')
         .select('*')
@@ -88,8 +86,7 @@ export async function POST(request: NextRequest) {
           .select('*')
           .eq('jurisdiction_id', jurisdiction.id)
 
-        // Try to pick a relevant zone based on project type
-        zone = zones?.find((z) => z.permitted_uses?.includes(project_inputs.type))
+        zone = zones?.find((z: { permitted_uses?: string[] }) => z.permitted_uses?.includes(project_inputs.type))
           || zones?.[0]
           || null
       }
@@ -111,27 +108,22 @@ export async function POST(request: NextRequest) {
       }, { status: 404 })
     }
 
-    // 3-5. Run feasibility check
-    const checkResult = runFeasibilityCheck(
-      project_inputs,
-      zone,
-      parcel?.acreage ? Number(parcel.acreage) : undefined
-    )
+    // 3-5. Run feasibility check (use development_standards)
+    const acreage = parcelFound && parcel?.metadata?.acreage
+      ? Number(parcel.metadata.acreage)
+      : undefined
+
+    const checkResult = runFeasibilityCheck(project_inputs, zone, acreage)
 
     // 6. Determine confidence
-    const hasFullDevStandards = zone.dev_standards &&
-      zone.dev_standards.max_stories !== undefined &&
-      zone.dev_standards.max_height_ft !== undefined
+    const ds = zone.development_standards || {}
+    const hasFullDevStandards = ds.max_stories !== undefined && ds.max_height_ft !== undefined
 
     const confidence = determineConfidence(parcelFound, !!hasFullDevStandards)
 
     // 7. Get roadmap
-    let roadmapSteps = getDefaultRoadmap(
-      checkResult.status,
-      jurisdiction?.name || 'Local'
-    )
+    let roadmapSteps = getDefaultRoadmap(checkResult.status, jurisdiction?.name || 'Local')
 
-    // Check for custom roadmap template
     if (jurisdiction) {
       const { data: templates } = await supabase
         .from('approval_roadmap_templates')
@@ -158,7 +150,6 @@ export async function POST(request: NextRequest) {
       })
     } catch (err) {
       console.error('Claude summary generation failed:', err)
-      // Fallback summary
       const statusText = checkResult.status === 'permitted'
         ? 'permitted as-of-right'
         : checkResult.status === 'conditional'
@@ -166,7 +157,7 @@ export async function POST(request: NextRequest) {
           : 'not permitted under current zoning'
 
       summary = `Your proposed ${project_inputs.type.replace('_', ' ')} project is ${statusText} in the ${zone.code} (${zone.name}) zone. ${
-        checkResult.standards_comparison.some((s) => !s.compliant)
+        checkResult.standards_comparison.some((s: { compliant: boolean }) => !s.compliant)
           ? 'Some development standards are not met.'
           : 'All applicable development standards are met.'
       }`

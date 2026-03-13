@@ -22,10 +22,11 @@ export async function GET(request: NextRequest) {
     const supabase = getServiceClient()
 
     // 2. Search parcels table for matching address
+    const streetPart = address.split(',')[0].trim()
     const { data: parcels } = await supabase
       .from('parcels')
-      .select('*, current_zone_id')
-      .ilike('address', `%${address.split(',')[0]}%`)
+      .select('*')
+      .ilike('address', `%${streetPart}%`)
       .limit(1)
 
     const parcel = parcels?.[0] || null
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
       const { data: zone } = await supabase
         .from('zoning_districts')
         .select('*')
-        .eq('id', parcel.current_zone_id)
+        .eq('id', parcel.zoning_district_id)
         .single()
 
       const { data: jurisdiction } = await supabase
@@ -45,15 +46,19 @@ export async function GET(request: NextRequest) {
         .single()
 
       return NextResponse.json({
-        parcel: { ...parcel, lat: geocoded.lat, lng: geocoded.lng },
+        parcel: {
+          ...parcel,
+          lat: parcel.metadata?.lat || geocoded.lat,
+          lng: parcel.metadata?.lng || geocoded.lng,
+          acreage: parcel.metadata?.acreage || null,
+        },
         jurisdiction,
         zone,
-        coverage_status: jurisdiction?.coverage_status || 'partial',
+        match_quality: 'exact',
       })
     }
 
     // 3. Parcel not found — try to find jurisdiction by address context
-    // For Phase 1, return geocoded location with limited data warning
     const { data: jurisdictions } = await supabase
       .from('jurisdictions')
       .select('*')
@@ -61,7 +66,6 @@ export async function GET(request: NextRequest) {
 
     const fallbackJurisdiction = jurisdictions?.[0] || null
 
-    // Get first zone for the jurisdiction as a fallback
     let fallbackZone = null
     if (fallbackJurisdiction) {
       const { data: zones } = await supabase
@@ -80,12 +84,13 @@ export async function GET(request: NextRequest) {
         lat: geocoded.lat,
         lng: geocoded.lng,
         acreage: null,
+        apn: null,
         jurisdiction_id: fallbackJurisdiction?.id || null,
-        current_zone_id: fallbackZone?.id || null,
+        zoning_district_id: fallbackZone?.id || null,
       },
       jurisdiction: fallbackJurisdiction,
       zone: fallbackZone,
-      coverage_status: 'none',
+      match_quality: 'none',
       warning: 'This parcel was not found in our database. Results are based on limited data and may not be accurate.',
     })
   } catch (error) {

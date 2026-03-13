@@ -3,10 +3,13 @@
 import { useEffect, useState } from 'react'
 
 const STEPS = [
-  'Locating parcel...',
-  'Loading zoning data...',
-  'Checking compliance...',
-  'Generating report...',
+  'Geocoding address...',
+  'Resolving parcel...',
+  'Identifying jurisdiction...',
+  'Looking up zoning classification...',
+  'Mapping proposed use...',
+  'Evaluating rules and standards...',
+  'Synthesizing results...',
 ]
 
 export default function LoadingSteps() {
@@ -18,7 +21,7 @@ export default function LoadingSteps() {
         if (prev < STEPS.length - 1) return prev + 1
         return prev
       })
-    }, 2000)
+    }, 1200)
     return () => clearInterval(interval)
   }, [])
 

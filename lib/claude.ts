@@ -1,10 +1,65 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { Verdict, StandardComparison } from './types'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 })
 
 const MODEL = 'claude-sonnet-4-20250514'
+
+// ─── M1: Generate a plain-language explanation for a zoning verdict ───
+export async function generateVerdictExplanation(context: {
+  verdict: Verdict
+  zone_code: string
+  zone_name: string | null
+  jurisdiction: string
+  project_type: string
+  use_status: string
+  standards_comparison: StandardComparison[]
+  caveats: string[]
+}): Promise<string> {
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 512,
+      system: `You explain zoning verdicts in plain language. The verdict has already been determined by a rules engine — you are only explaining WHY. Write 2-3 sentences. Be direct and factual. Do not say "our analysis" or "our AI" or "we found". Speak as a factual reference: "This property is zoned...", "The proposed use is...", etc.`,
+      messages: [
+        {
+          role: 'user',
+          content: `Explain this zoning verdict:
+
+Verdict: ${context.verdict}
+Zone: ${context.zone_code} (${context.zone_name || 'Unknown'})
+Jurisdiction: ${context.jurisdiction}
+Proposed use: ${context.project_type.replace(/_/g, ' ')}
+Use status: ${context.use_status}
+Standards met: ${context.standards_comparison.every((s) => s.compliant) ? 'Yes, all' : 'No, some failed'}
+${context.standards_comparison.filter((s) => !s.compliant).map((s) => `  - ${s.standard}: proposed ${s.proposed}, allowed ${s.allowed}`).join('\n')}
+${context.caveats.length > 0 ? `Caveats: ${context.caveats.join('; ')}` : ''}`,
+        },
+      ],
+    })
+
+    const textContent = response.content.find((c) => c.type === 'text')
+    if (!textContent || textContent.type !== 'text') {
+      throw new Error('No text response from Claude')
+    }
+    return textContent.text
+  } catch {
+    // Fallback: generate a simple explanation without AI
+    const useLabel = context.project_type.replace(/_/g, ' ')
+    if (context.verdict === 'allowed') {
+      return `${useLabel} is a permitted use in the ${context.zone_code} zone in ${context.jurisdiction}. All applicable development standards are met.`
+    }
+    if (context.verdict === 'conditional') {
+      return `${useLabel} may require conditional approval in the ${context.zone_code} zone in ${context.jurisdiction}. Some standards may need review or special permitting.`
+    }
+    if (context.verdict === 'prohibited') {
+      return `${useLabel} is not a permitted or conditional use in the ${context.zone_code} zone in ${context.jurisdiction}. A rezoning or variance would be required.`
+    }
+    return `Insufficient data to determine whether ${useLabel} is permitted in this location. Additional parcel and zoning information is needed.`
+  }
+}
 
 // Enhanced document parsing - accepts ALL file types, classifies building type
 export async function parseDocument(base64Content: string, mimeType: string): Promise<{

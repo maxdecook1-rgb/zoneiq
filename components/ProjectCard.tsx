@@ -1,20 +1,35 @@
 import Link from 'next/link'
-import { Project } from '@/lib/types'
+import { Project, FeasibilityResult, StructuredAnalysisResult } from '@/lib/types'
 import ConfidenceBadge from './ConfidenceBadge'
 
 interface ProjectCardProps {
   project: Project
 }
 
-const statusStyles = {
+const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
   permitted: { bg: 'bg-green-100', text: 'text-green-800', label: 'Permitted' },
+  allowed: { bg: 'bg-green-100', text: 'text-green-800', label: 'Permitted' },
   conditional: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Conditional' },
   not_permitted: { bg: 'bg-red-100', text: 'text-red-800', label: 'Not Permitted' },
+  prohibited: { bg: 'bg-red-100', text: 'text-red-800', label: 'Not Permitted' },
+  uncertain: { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Uncertain' },
+}
+
+function getStatusKey(result: FeasibilityResult | StructuredAnalysisResult | null): string {
+  if (!result) return 'not_permitted'
+  if ('verdict' in result) return result.verdict.status
+  return result.status
+}
+
+function getConfidence(result: FeasibilityResult | StructuredAnalysisResult | null): 'high' | 'medium' | 'low' | null {
+  if (!result) return null
+  if ('verdict' in result) return result.confidence.level
+  return result.confidence
 }
 
 export default function ProjectCard({ project }: ProjectCardProps) {
-  const status = project.result?.status || 'not_permitted'
-  const style = statusStyles[status]
+  const statusKey = getStatusKey(project.result)
+  const style = statusStyles[statusKey] || statusStyles['not_permitted']
   const date = new Date(project.created_at).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -29,8 +44,8 @@ export default function ProjectCard({ project }: ProjectCardProps) {
           <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
             {style.label}
           </span>
-          {project.result?.confidence && (
-            <ConfidenceBadge confidence={project.result.confidence} />
+          {getConfidence(project.result) && (
+            <ConfidenceBadge confidence={getConfidence(project.result)!} />
           )}
         </div>
 

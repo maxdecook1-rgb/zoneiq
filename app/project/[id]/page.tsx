@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Project } from '@/lib/types'
+import { Project, FeasibilityResult as FeasibilityResultType, StructuredAnalysisResult } from '@/lib/types'
 import FeasibilityResult from '@/components/FeasibilityResult'
+import StructuredResult from '@/components/StructuredResult'
 import MapView from '@/components/MapView'
 
 export default function ProjectPage() {
@@ -148,7 +149,9 @@ export default function ProjectPage() {
 
             {/* Results */}
             {project.result && (
-              <FeasibilityResult result={project.result} onExport={handleExport} />
+              'verdict' in project.result
+                ? <StructuredResult result={project.result as StructuredAnalysisResult} onExport={handleExport} />
+                : <FeasibilityResult result={project.result as FeasibilityResultType} onExport={handleExport} />
             )}
           </div>
         ) : null}

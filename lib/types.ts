@@ -1,11 +1,30 @@
+// ─── DB-aligned types (match actual Supabase schema) ───
+
 export interface Jurisdiction {
   id: string
   name: string
   state: string
-  coverage_status: 'full' | 'partial' | 'none'
-  gis_source_url: string | null
-  code_source_url: string | null
-  last_updated: string | null
+  county?: string | null
+  municipal_code_url?: string | null
+  zoning_map_url?: string | null
+  created_at?: string
+}
+
+export interface DevStandards {
+  min_lot_sqft?: number
+  max_height_ft?: number
+  max_stories?: number
+  max_far?: number
+  max_lot_coverage_pct?: number
+  min_parking_spaces?: number
+  max_density_units_per_acre?: number
+  max_impervious_surface_pct?: number
+  buffer_ft?: number
+  setbacks?: {
+    front_ft?: number
+    side_ft?: number
+    rear_ft?: number
+  }
 }
 
 export interface ZoningDistrict {
@@ -13,52 +32,33 @@ export interface ZoningDistrict {
   jurisdiction_id: string
   code: string
   name: string | null
-  description: string | null
+  category: string | null
   permitted_uses: string[]
   conditional_uses: string[]
-  prohibited_uses: string[]
-  dev_standards: DevStandards
+  development_standards: DevStandards
+  created_at?: string
 }
 
-export interface DevStandards {
-  min_lot_size_sqft?: number
-  max_height_ft?: number
-  max_stories?: number
-  front_setback_ft?: number
-  side_setback_ft?: number
-  rear_setback_ft?: number
-  max_lot_coverage_pct?: number
-  max_far?: number
-  min_parking_per_unit?: number
-  min_parking_per_1000sqft?: number
-  max_density_units_per_acre?: number
-  max_impervious_surface_pct?: number
-  buffer_ft?: number
+export interface ParcelMetadata {
+  lat?: number
+  lng?: number
+  acreage?: number
+  lot_width_ft?: number
+  lot_depth_ft?: number
+  lot_shape?: string
 }
 
 export interface Parcel {
   id: string
   jurisdiction_id: string
+  zoning_district_id: string | null
   apn: string | null
   address: string
-  lat: number | null
-  lng: number | null
-  acreage: number | null
-  current_zone_id: string | null
-  raw_data: Record<string, unknown> | null
-  lot_width_ft?: number | null
-  lot_depth_ft?: number | null
-  lot_shape?: string | null  // from GIS
+  metadata: ParcelMetadata | null
+  created_at?: string
 }
 
-export interface ProjectInputs {
-  type: ProjectType
-  units?: number
-  stories?: number
-  sqft?: number
-  parking?: number
-  description?: string  // user free-text description
-}
+// ─── Project types ───
 
 export type ProjectType =
   | 'single_family'
@@ -73,9 +73,18 @@ export type ProjectType =
   | 'adu'
   | 'other'
 
+export interface ProjectInputs {
+  type: ProjectType
+  units?: number
+  stories?: number
+  sqft?: number
+  parking?: number
+  description?: string
+}
+
 export interface BuildingClassification {
   type: ProjectType
-  confidence: number  // 0-1
+  confidence: number
   units: number | null
   stories: number | null
   sqft: number | null
@@ -85,6 +94,8 @@ export interface BuildingClassification {
   building_depth_ft: number | null
   description: string
 }
+
+// ─── Feasibility result types ───
 
 export interface StandardComparison {
   standard: string
@@ -122,23 +133,70 @@ export interface FeasibilityResult {
   required_zone_code?: string
 }
 
+// ─── M1: Structured Analysis types ───
+
+export type Verdict = 'allowed' | 'conditional' | 'prohibited' | 'uncertain'
+
+export interface ConfidenceMetadata {
+  score: number            // 0.0–1.0
+  level: 'high' | 'medium' | 'low'
+  factors: { name: string; present: boolean; weight: number }[]
+  caveats: string[]
+}
+
+export interface StructuredAnalysisResult {
+  parcel_summary: {
+    address: string
+    apn: string | null
+    acreage: number | null
+    jurisdiction_name: string
+    zone_code: string
+    zone_name: string | null
+    lat: number | null
+    lng: number | null
+  }
+  project_summary: {
+    type: ProjectType
+    type_label: string
+    units: number | null
+    stories: number | null
+    sqft: number | null
+    parking: number | null
+    description: string | null
+  }
+  verdict: {
+    status: Verdict
+    status_label: string
+    use_status: string
+    explanation: string
+  }
+  standards: {
+    comparisons: StandardComparison[]
+    all_compliant: boolean
+    setbacks: {
+      front: { required_ft: number | null; available_ft: number | null; compliant: boolean | null } | null
+      side: { required_ft: number | null; available_ft: number | null; compliant: boolean | null } | null
+      rear: { required_ft: number | null; available_ft: number | null; compliant: boolean | null } | null
+    } | null
+  }
+  confidence: ConfidenceMetadata
+  caveats: { text: string; severity: 'info' | 'warning' | 'critical' }[]
+  roadmap: RoadmapStep[]
+  sources: { label: string; url: string | null; accessed_at: string }[]
+  disclaimer: string
+}
+
+// ─── Project (DB-aligned) ───
+
 export interface Project {
   id: string
   user_id: string
-  name: string
   address: string | null
   parcel_id: string | null
   jurisdiction_id: string | null
   project_inputs: ProjectInputs
-  result: FeasibilityResult | null
-  uploaded_files: UploadedFile[]
-  building_classification: BuildingClassification | null
-  site_plan_url: string | null
-  floor_plan_url: string | null
-  rezoning_app_url: string | null
-  tier: 'basic' | 'medium' | 'detailed'
+  result: FeasibilityResult | StructuredAnalysisResult | null
   created_at: string
-  updated_at: string
 }
 
 export interface UploadedFile {
@@ -149,6 +207,8 @@ export interface UploadedFile {
   size: number
   uploaded_at: string
 }
+
+// ─── Site/Floor plan types ───
 
 export interface SitePlanData {
   lot_width_ft: number
@@ -189,7 +249,7 @@ export interface FloorPlanData {
   width_ft: number
   depth_ft: number
   stories: number
-  rooms: FloorPlanRoom[][]  // array per floor
+  rooms: FloorPlanRoom[][]
   total_sqft: number
   description: string
 }
@@ -204,6 +264,8 @@ export interface UserProfile {
   created_at: string
 }
 
+// ─── Constants ───
+
 export const PROJECT_TYPES = [
   { value: 'single_family', label: 'Single Family' },
   { value: 'duplex', label: 'Duplex' },
@@ -216,6 +278,13 @@ export const PROJECT_TYPES = [
   { value: 'mixed_use', label: 'Mixed-Use' },
   { value: 'industrial', label: 'Industrial' },
 ] as const
+
+export const VERDICT_LABELS: Record<Verdict, string> = {
+  allowed: 'Allowed As-of-Right',
+  conditional: 'Conditional Approval Required',
+  prohibited: 'Not Permitted',
+  uncertain: 'Insufficient Data',
+}
 
 export const TIER_PRICING = {
   basic: { name: 'Basic', price: 29, description: 'Zoning check + basic site plan' },
