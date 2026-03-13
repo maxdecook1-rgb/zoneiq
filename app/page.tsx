@@ -4,7 +4,7 @@ import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/lib/auth-context'
 import AddressSearch from '@/components/AddressSearch'
-import ParcelConfirmation from '@/components/ParcelConfirmation'
+import ParcelConfirmation, { ZoneOverride } from '@/components/ParcelConfirmation'
 import ProjectForm from '@/components/ProjectForm'
 import StructuredResult from '@/components/StructuredResult'
 import LoadingSteps from '@/components/LoadingSteps'
@@ -82,9 +82,25 @@ export default function HomePage() {
     }
   }
 
-  const handleParcelConfirm = (overrides?: { acreage?: number }) => {
+  const handleParcelConfirm = (overrides?: { acreage?: number; zoneOverride?: ZoneOverride }) => {
     if (overrides?.acreage && parcelData) {
       setParcelData({ ...parcelData, acreage: overrides.acreage })
+    }
+    if (overrides?.zoneOverride) {
+      // Update zone and parcel data with the user's override
+      setZone({
+        id: overrides.zoneOverride.id || '',
+        code: overrides.zoneOverride.code,
+        name: overrides.zoneOverride.name,
+        category: overrides.zoneOverride.category,
+        permitted_uses: overrides.zoneOverride.permitted_uses,
+        conditional_uses: overrides.zoneOverride.conditional_uses,
+        development_standards: overrides.zoneOverride.development_standards as ZoningDistrict['development_standards'],
+      } as ZoningDistrict)
+      if (parcelData) {
+        setParcelData({ ...parcelData, zoning_district_id: overrides.zoneOverride.id })
+      }
+      setMatchQuality('exact')
     }
     setStep('form')
   }
@@ -271,6 +287,7 @@ export default function HomePage() {
               zoneCode={zone?.code || null}
               zoneName={zone?.name || null}
               jurisdictionName={jurisdiction?.name || null}
+              jurisdictionId={jurisdiction?.id || parcelData.jurisdiction_id || null}
               matchQuality={matchQuality}
               onConfirm={handleParcelConfirm}
               onSearchAgain={handleReset}
